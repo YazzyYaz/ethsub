@@ -1,9 +1,5 @@
 pragma solidity ^0.5.0;
 
-/// @title Fund Wallet - Fund raising and distribution wallet according to stake and incentive scheme.
-/// @dev Not fully tested, use only in test environment.
-
-
 interface ERC20 {
     function totalSupply() external view returns (uint supply);
     function balanceOf(address _owner) external view returns (uint balance);
