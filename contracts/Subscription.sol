@@ -1,4 +1,4 @@
-pragma solidity ^0.5.0;
+pragma solidity 0.5.0;
 
 interface ERC20 {
     function totalSupply() external view returns (uint supply);
@@ -17,6 +17,18 @@ interface UserAccount {
     function getOwner() external returns (address);
 }
 
+interface SimpleNetworkInterface {
+    function swapTokenToToken(ERC20 src, uint srcAmount, ERC20 dest, uint minConversionRate) external returns(uint);
+    function swapEtherToToken(ERC20 token, uint minConversionRate) external payable returns(uint);
+    function swapTokenToEther(ERC20 token, uint srcAmount, uint minConversionRate) external returns(uint);
+}
+
+
+interface KyberNetworkProxyInterface {
+    function getExpectedRate(ERC20 src, ERC20 dest, uint srcQty) external view
+        returns (uint expectedRate, uint slippageRate);
+}
+
 contract Subscription {
 
     address payable owner;
@@ -27,14 +39,20 @@ contract Subscription {
     uint subscriptionPeriod;
     uint subscriptionValue;
     bool started;
+    SimpleNetworkInterface public simpleContract;
+    KyberNetworkProxyInterface public kyberProxyContract;
+    //eth address
+    ERC20 constant internal ETH_TOKEN_ADDRESS = ERC20(0x00eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee);
 
     modifier onlyOwner {
       require(msg.sender == owner);
       _;
     }
 
-    constructor(address payable _owner) public {
+    constructor(address payable _owner, SimpleNetworkInterface _kyberProxy, KyberNetworkProxyInterface _kyberProxyContract) public {
         owner = _owner;
+        simpleContract = _kyberProxy;
+        kyberProxyContract = _kyberProxyContract;
     }
 
      /// @notice Fallback function - recieves ETH but doesn't alter contributor stakes or raised balance.
@@ -151,6 +169,19 @@ contract Subscription {
     function withdrawEther(uint amount) public onlyOwner returns (bool){
         owner.transfer(amount);
         return true;
+    }
+
+    function withdrawAsToken (ERC20 token) public onlyOwner {
+
+    uint minRate;
+    uint bal = address(this).balance;
+    (, minRate) = kyberProxyContract.getExpectedRate(ETH_TOKEN_ADDRESS, token, bal);
+
+    //will send back tokens to this contract's address
+    uint destAmount = simpleContract.swapEtherToToken.value(bal)(token, minRate);
+
+    //send received tokens to destination address
+    require(token.transfer(owner, destAmount));
     }
 
 }
