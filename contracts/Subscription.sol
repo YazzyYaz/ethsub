@@ -23,12 +23,18 @@ contract Subscription {
     address owner;
     address[] public subscribers;
     mapping (address => bool) public isSubscriber;
-    //some base time
-    //how many days valid
+    uint baseTime;
+    uint subscriptionPeriod;
+    uint subscriptionValue;
 
     modifier onlyOwner {
       require(msg.sender == owner);
       _;
+    }
+
+    modifier ifValidTime {
+        require(now >= baseTime + subscriptionPeriod);
+        _;
     }
 
     constructor(address _owner) public {
@@ -37,6 +43,19 @@ contract Subscription {
 
      /// @notice Fallback function - recieves ETH but doesn't alter contributor stakes or raised balance.
     function() external payable {
+    }
+
+    function setSubscriptionPeriod(uint _days) public onlyOwner {
+        //minutes for testing only
+        subscriptionPeriod = _days * (60 seconds);
+    }
+
+    function startSubscription() public onlyOwner {
+        baseTime = now;
+    }
+
+    function setSubscriptionValue(uint _value) public onlyOwner {
+        subscriptionValue = _value;
     }
 
     function subscribe(address _sub) public {
@@ -61,7 +80,7 @@ contract Subscription {
         //pro rata payment for used time?
     }
 
-    function claim() public onlyOwner {
+    function claim() public onlyOwner ifValidTime {
         for (uint i = 0; i < subscribers.length; i++) {
             uint bal = address(subscribers[i]).balance;
 
