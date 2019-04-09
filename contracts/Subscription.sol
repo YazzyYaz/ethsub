@@ -11,38 +11,50 @@ interface ERC20 {
     event Approval(address indexed _owner, address indexed _spender, uint _value);
 }
 
-interface User {
+interface UserAccount {
     function pullToken(ERC20 token, uint amount) external returns (bool);
     function pullEther(uint amount) external  returns (bool);
+    function getOwner() external returns (address);
 }
 
 contract Subscription {
 
-    //plan for failed payments if balance is below they are removes from subscribers or another mapping of address and bool calle lapsedSub
-
-    address owner;
+    address payable owner;
     address[] public subscribers;
     mapping (address => bool) public isSubscriber;
-    uint baseTime;
+    mapping (address => uint) public commitments;
+    mapping (address =>uint) public baseTimes;
     uint subscriptionPeriod;
     uint subscriptionValue;
+    bool started;
 
     modifier onlyOwner {
       require(msg.sender == owner);
       _;
     }
 
-    modifier ifValidTime {
-        require(now >= baseTime + subscriptionPeriod);
-        _;
-    }
-
-    constructor(address _owner) public {
+    constructor(address payable _owner) public {
         owner = _owner;
     }
 
      /// @notice Fallback function - recieves ETH but doesn't alter contributor stakes or raised balance.
     function() external payable {
+    }
+
+    function getSubscriptionPeriodinDays() public view returns(uint) {
+        return subscriptionPeriod;
+    }
+
+    function getSubscriptionValue() public view returns (uint) {
+        return subscriptionValue;
+    }
+
+    function getSubscribers() external view returns(address[] memory) {
+        return subscribers;
+    }
+
+    function getSubscriberCount() external view returns(uint) {
+        return subscribers.length;
     }
 
     function setSubscriptionPeriod(uint _days) public onlyOwner {
@@ -51,7 +63,7 @@ contract Subscription {
     }
 
     function startSubscription() public onlyOwner {
-        baseTime = now;
+        started = true;
     }
 
     function setSubscriptionValue(uint _value) public onlyOwner {
@@ -59,42 +71,86 @@ contract Subscription {
     }
 
     function subscribe(address _sub) public {
-        require(!isSubscriber[_sub]); //only new contributor
+        require(!isSubscriber[_sub]); //only new subscriber
         require(_sub != owner);
-        isSubscriber[_sub] = true;
-        subscribers.push(_sub);
+        require(started == true);
+        address accOwner =  UserAccount(_sub).getOwner();
 
-        //if now > base take payment now? or pro rata payment for remaining time
+        if (msg.sender == accOwner) {
+            baseTimes[_sub] = now;
+            require(UserAccount(_sub).pullEther(subscriptionValue));
+            isSubscriber[_sub] = true;
+            subscribers.push(_sub);
+        } else {
+            revert();
+        }
+
     }
 
     function unsubscribe(address _sub) public {
         require(isSubscriber[_sub]);
-        isSubscriber[_sub] = false;
-        for (uint i=0; i < subscribers.length - 1; i++)
+        address accOwner =  UserAccount(_sub).getOwner();
+        if (msg.sender == owner) {
+            isSubscriber[_sub] = false;
+            for (uint i=0; i < subscribers.length - 1; i++)
             if (subscribers[i] == _sub) {
                 subscribers[i] = subscribers[subscribers.length - 1];
                 break;
             }
         subscribers.length -= 1;
-
-        //pro rata payment for used time?
+        } else if (msg.sender == accOwner) {
+            isSubscriber[_sub] = false;
+            for (uint i=0; i < subscribers.length - 1; i++)
+            if (subscribers[i] == _sub) {
+                subscribers[i] = subscribers[subscribers.length - 1];
+                break;
+            }
+        subscribers.length -= 1;
+        } else {
+            revert();
+        }
     }
 
-    function claim() public onlyOwner ifValidTime {
+    function claim() public onlyOwner  {
+
         for (uint i = 0; i < subscribers.length; i++) {
+            uint timeLapsed = (now - baseTimes[subscribers[i]])/subscriptionPeriod;
+            uint paymentAmt = timeLapsed * subscriptionValue;
+
             uint bal = address(subscribers[i]).balance;
 
-            if (bal >= 5) {
-                require(User(subscribers[i]).pullEther(5));
+            if (timeLapsed > 0){
+                if (bal >= paymentAmt) {
+                require(UserAccount(subscribers[i]).pullEther(paymentAmt));
+                baseTimes[subscribers[i]] = now;
+                 } else {
+                isSubscriber[subscribers[i]] = false;
+                subscribers[i] = subscribers[subscribers.length - 1];
+                subscribers.length--;
+                delete baseTimes[subscribers[i]];
+                break;
+                }
+            } else {
+                return;
             }
-
-            //if balance below remove from subscribers or lapsedSub bool set to true
         }
     }
 
     ///@dev function to check balance only returns balances in opperating and liquidating periods
     function checkEthBalance() public view returns (uint) {
         return address(this).balance;
+    }
+
+    /*
+    function withdrawToken(ERC20 token, uint amount) public onlyOwner returns (bool){
+        require(token.transfer(owner, amount));
+        return true;
+    }
+    */
+
+    function withdrawEther(uint amount) public onlyOwner returns (bool){
+        owner.transfer(amount);
+        return true;
     }
 
 }

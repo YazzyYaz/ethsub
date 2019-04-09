@@ -1,5 +1,6 @@
 pragma solidity ^0.5.0;
 
+
 interface ERC20 {
     function totalSupply() external view returns (uint supply);
     function balanceOf(address _owner) external view returns (uint balance);
@@ -13,26 +14,49 @@ interface ERC20 {
 
 contract UserAccount {
 
-    address payable owner;
-    address payable payee;
+    address payable ownerPay;
+    address owner;
+    mapping(address=>bool) internal subscriptions;
+    address[] internal subscriptionsGroup;
 
     modifier onlyOwner {
       require(msg.sender == owner);
       _;
     }
 
-    modifier onlyPayee {
-      require(msg.sender == payee);
+    modifier onlySubscriptions {
+      require(subscriptions[msg.sender]);
       _;
     }
 
     constructor(address payable _owner) public {
         owner = _owner;
+        ownerPay = _owner;
     }
 
-    function setPayee(address payable _payee) public onlyOwner {
-        payee = _payee;
+    function addSubscription(address _subscription) public onlyOwner {
+        require(!subscriptions[_subscription]); // prevent duplicates.
+        subscriptions[_subscription] = true;
+        subscriptionsGroup.push(_subscription);
     }
+
+    function removeSubscription(address _subscription) public onlyOwner {
+        require(subscriptions[_subscription]);
+        subscriptions[_subscription] = false;
+
+        for (uint i = 0; i < subscriptionsGroup.length; ++i) {
+            if (subscriptionsGroup[i] == _subscription) {
+                subscriptionsGroup[i] = subscriptionsGroup[subscriptionsGroup.length - 1];
+                subscriptionsGroup.length--;
+                break;
+            }
+        }
+    }
+
+    function getSubscriptions() external view returns(address[] memory) {
+        return subscriptionsGroup;
+    }
+
 
      /// @notice Fallback function - recieves ETH but doesn't alter contributor stakes or raised balance.
     function() external onlyOwner payable {
@@ -50,22 +74,30 @@ contract UserAccount {
 
     /// @dev send erc20token to the reserve address
     /// @param token ERC20 The address of the token contract
-    function pullToken(ERC20 token, uint amount) external onlyPayee returns (bool){
-        require(token.transfer(payee, amount));
+    function pullToken(ERC20 token, uint amount) external onlySubscriptions returns (bool){
+        require(token.transfer(msg.sender, amount));
         return true;
     }
 
     ///@dev Send ether to the reserve address
-    function pullEther(uint amount) external onlyPayee returns (bool){
-        address(payee).transfer(amount);
+    function pullEther(uint amount) external onlySubscriptions returns (bool){
+        address(msg.sender).transfer(amount);
         return true;
     }
+
+    function getOwner() external onlySubscriptions returns (address){
+        return owner;
+    }
+
+    /*
     function withdrawToken(ERC20 token, uint amount) public onlyOwner returns (bool){
         require(token.transfer(owner, amount));
         return true;
     }
+    */
+
     function withdrawEther(uint amount) public onlyOwner returns (bool){
-        owner.transfer(amount);
+        ownerPay.transfer(amount);
         return true;
     }
 
